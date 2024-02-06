@@ -1,15 +1,13 @@
-// Copyright 2017 Oh-Hyun Kwon (kwonoh.net)
-// Distributed under the Boost Software License, Version 1.0.
-// (See accompanying file LICENSE_1_0.txt or copy at
-// http://www.boost.org/LICENSE_1_0.txt)
-
 #ifndef __KW_GRAPH_LAYOUT_METRIC_EDGE_CROSSING_HPP__
 #define __KW_GRAPH_LAYOUT_METRIC_EDGE_CROSSING_HPP__
 
 #include <cmath>
 #include <mutex>
+#include <vector>
+#include <map>
+#include <sstream>
+#include <stdexcept>
 
-#include <tbb/tbb.h>
 #include <boost/compute.hpp>
 #include <boost/foreach.hpp>
 #include <boost/geometry.hpp>
@@ -242,8 +240,7 @@ struct edge_crossings_kernel {
 
 template <typename Graph, typename PositionMap>
 typename boost::graph_traits<Graph>::edges_size_type
-num_edge_crossings(Graph const& g, PositionMap pos)
-{
+num_edge_crossings(Graph const& g, PositionMap pos) {
     static std::map<cl_device_id, detail::edge_crossings_kernel> kernels;
     std::vector<cl_device_id> devices;
     for (auto const& platform : boost::compute::system::platforms()) {
@@ -275,37 +272,16 @@ num_edge_crossings(Graph const& g, PositionMap pos)
         }
     }
 
-    std::size_t const n_devices = devices.size();
-    std::uint32_t current_group_idx = 0;
-    std::mutex group_idx_mutex;
+    auto& kernel = kernels.begin()->second; // 仅使用第一个找到的设备
+    kernel.setup(g, pos, work_size_1d);
 
-    tbb::task_group task_group;
-    for (std::size_t device_idx = 0; device_idx < n_devices; device_idx++) {
-        task_group.run([&, device_idx] {
-            auto& kernel = kernels[devices[device_idx]];
-            kernel.setup(g, pos, work_size_1d);
-
-            while (current_group_idx < groups_2d.size()) {
-                group_idx_mutex.lock();
-                std::uint32_t const group_idx = current_group_idx++;
-                group_idx_mutex.unlock();
-
-                auto const& group = groups_2d[group_idx];
-                kernel.compute(group.first * work_size_1d,
-                               group.second * work_size_1d);
-            }
-        });
-    }
-    task_group.wait();
-
-    typename boost::graph_traits<Graph>::edges_size_type n_crossings = 0;
-    for (auto& device : devices) {
-        auto& kernel = kernels[device];
-        kernel.finish();
-        n_crossings += kernel.n_crossings;
+    for (auto const& group : groups_2d) {
+        kernel.compute(group.first * work_size_1d, group.second * work_size_1d);
     }
 
-    return n_crossings;
+    kernel.finish();
+
+    return kernel.n_crossings;
 }
 
 namespace detail {

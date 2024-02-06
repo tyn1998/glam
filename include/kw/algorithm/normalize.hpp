@@ -6,11 +6,6 @@
 #ifndef __KW_ALGORITHM_NORMALIZE_HPP__
 #define __KW_ALGORITHM_NORMALIZE_HPP__
 
-#ifdef KW_USE_TBB
-#include <tbb/tbb.h>
-#include <iterator>
-#endif
-
 #include <algorithm>
 
 #include <kw/math/comparison.hpp>
@@ -28,12 +23,8 @@ minmax_normalize(Container& c)
 
     auto const range = max - min;
 
-#ifdef KW_USE_TBB
-    tbb::parallel_for_each(c, [=](auto& x) { x = (x - min) / range; });
-#else
     std::transform(std::begin(c), std::end(c), std::begin(c),
                    [&](auto const x) { return (x - min) / range; });
-#endif
     return true;
 }
 

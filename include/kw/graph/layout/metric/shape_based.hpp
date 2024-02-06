@@ -1,15 +1,11 @@
-// Copyright 2017 Oh-Hyun Kwon (kwonoh.net)
-// Distributed under the Boost Software License, Version 1.0.
-// (See accompanying file LICENSE_1_0.txt or copy at
-// http://www.boost.org/LICENSE_1_0.txt)
-
 #ifndef __KW_GRAPH_LAYOUT_METRIC_SHAPE_BASED_HPP__
 #define __KW_GRAPH_LAYOUT_METRIC_SHAPE_BASED_HPP__
 
 #include <cmath>
 #include <iostream>
-
-#include <tbb/tbb.h>
+#include <vector>
+#include <algorithm>
+#include <numeric>
 #include <boost/foreach.hpp>
 #include <boost/geometry.hpp>
 #include <boost/geometry/index/rtree.hpp>
@@ -17,7 +13,6 @@
 
 #ifdef KW_USE_CGAL
 #include <CGAL/double.h>
-
 #include <CGAL/Delaunay_triangulation_2.h>
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/Triangulation_vertex_base_with_info_2.h>
@@ -112,14 +107,10 @@ convert_delaunay_triangulation_to_gabriel_graph(DelaunayGraph& g,
 }
 
 template <typename Graph, typename ShapeGraph>
-double
-shape_based_metric(Graph const& graph, ShapeGraph const& shape)
-{
+double shape_based_metric(Graph const& graph, ShapeGraph const& shape) {
     typedef typename boost::graph_traits<Graph>::vertex_descriptor g_v_desc;
-    typedef typename boost::graph_traits<Graph>::vertices_size_type
-        vertices_size_type;
-    typedef
-        typename boost::graph_traits<ShapeGraph>::vertex_descriptor s_v_desc;
+    typedef typename boost::graph_traits<Graph>::vertices_size_type vertices_size_type;
+    typedef typename boost::graph_traits<ShapeGraph>::vertex_descriptor s_v_desc;
 
     auto g_vp_idx = boost::get(boost::vertex_index, graph);
     auto s_vp_idx = boost::get(boost::vertex_index, shape);
@@ -129,40 +120,34 @@ shape_based_metric(Graph const& graph, ShapeGraph const& shape)
 
     std::vector<double> jaccard_similarities(boost::num_vertices(graph));
 
-    tbb::parallel_for_each(
-        kw::make_iterator_range(boost::vertices(graph)), [&](auto const g_u) {
-            auto const g_u_idx = g_vp_idx[g_u];
-            auto const s_u = s_v_descs[g_u_idx];
-            assert(s_vp_idx[s_u] == g_u_idx);
+    // Replace tbb::parallel_for_each with a simple for loop
+    for (auto const g_u : boost::make_iterator_range(boost::vertices(graph))) {
+        auto const g_u_idx = g_vp_idx[g_u];
+        auto const s_u = s_v_descs[g_u_idx];
+        assert(s_vp_idx[s_u] == g_u_idx);
 
-            std::vector<vertices_size_type> g_adjs;
-            BOOST_FOREACH (auto g_v, boost::adjacent_vertices(g_u, graph)) {
-                g_adjs.push_back(g_vp_idx[g_v]);
-            }
-            std::sort(g_adjs.begin(), g_adjs.end());
+        std::vector<vertices_size_type> g_adjs;
+        BOOST_FOREACH (auto g_v, boost::adjacent_vertices(g_u, graph)) {
+            g_adjs.push_back(g_vp_idx[g_v]);
+        }
+        std::sort(g_adjs.begin(), g_adjs.end());
 
-            std::vector<vertices_size_type> s_adjs;
-            BOOST_FOREACH (auto s_v, boost::adjacent_vertices(s_u, shape)) {
-                s_adjs.push_back(s_vp_idx[s_v]);
-            }
-            std::sort(s_adjs.begin(), s_adjs.end());
+        std::vector<vertices_size_type> s_adjs;
+        BOOST_FOREACH (auto s_v, boost::adjacent_vertices(s_u, shape)) {
+            s_adjs.push_back(s_vp_idx[s_v]);
+        }
+        std::sort(s_adjs.begin(), s_adjs.end());
 
-            std::vector<vertices_size_type> adjs_union;
-            std::set_union(g_adjs.begin(), g_adjs.end(), s_adjs.begin(),
-                           s_adjs.end(), std::back_inserter(adjs_union));
+        std::vector<vertices_size_type> adjs_union;
+        std::set_union(g_adjs.begin(), g_adjs.end(), s_adjs.begin(), s_adjs.end(), std::back_inserter(adjs_union));
 
-            std::vector<vertices_size_type> adjs_intersection;
-            std::set_intersection(g_adjs.begin(), g_adjs.end(), s_adjs.begin(),
-                                  s_adjs.end(),
-                                  std::back_inserter(adjs_intersection));
+        std::vector<vertices_size_type> adjs_intersection;
+        std::set_intersection(g_adjs.begin(), g_adjs.end(), s_adjs.begin(), s_adjs.end(), std::back_inserter(adjs_intersection));
 
-            jaccard_similarities[g_u_idx] =
-                double(adjs_intersection.size()) / double(adjs_union.size());
-        });
+        jaccard_similarities[g_u_idx] = double(adjs_intersection.size()) / double(adjs_union.size());
+    }
 
-    return std::accumulate(jaccard_similarities.begin(),
-                           jaccard_similarities.end(), 0.0) /
-           boost::num_vertices(graph);
+    return std::accumulate(jaccard_similarities.begin(), jaccard_similarities.end(), 0.0) / boost::num_vertices(graph);
 }
 
 }  // namespace kw
